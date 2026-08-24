@@ -1,0 +1,8 @@
+{
+	"name": "gestion-documental",
+	"private": true,
+	"description": "Monorepo: api/ (NestJS) + frontend/ (SvelteKit). Ver PLAN_API.md y PLAN_FRONTEND.md.",
+	"scripts": {
+		"build:release": "node scripts/build-release.mjs"
+	}
+}

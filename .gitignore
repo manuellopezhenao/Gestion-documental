@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.svelte-kit/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Backups y releases (no versionar binarios generados)
+backups/
+release/
+release.zip
+
+# Datos de negocio pesados / generados (no versionar), pero sí los scripts
+split_facturas/*
+!split_facturas/*.py
+split_facturas/documentos.db
+split_facturas/output/
+split_facturas/tessdata/
+/*.pdf
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
