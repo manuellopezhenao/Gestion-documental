@@ -1,2 +1,1 @@
-@echo off
-powershell -NoProfile -WindowStyle Hidden -Command "Start-Process node -ArgumentList 'iniciar.js' -WorkingDirectory 'C:\Gestion-documental\release' -WindowStyle Hidden -RedirectStandardOutput 'C:\Gestion-documental\release\inicio.log' -RedirectStandardError 'C:\Gestion-documental\release\errores.log'"
+Invoke-WebRequest https://github.com/tesseract-ocr/tessdata/raw/main/spa.traineddata -OutFile "C:\Program Files\Tesseract-OCR\tessdata\spa.traineddata"
