@@ -1,1 +1,0 @@
-import{n as e}from"./BfVY1XGf.js";function t(){return e(`/api/v1/reportes/resumen`)}function n(){return e(`/api/v1/health`)}export{n,t};

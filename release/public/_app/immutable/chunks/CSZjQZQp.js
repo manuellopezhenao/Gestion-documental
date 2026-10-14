@@ -1,1 +1,0 @@
-import{X as e}from"./dkEaDxOQ.js";import"./DbxLvzwF.js";var t=e([]),n=0;function r(e,r=`info`,i=4e3){let a=++n;t.update(t=>[...t,{id:a,tipo:r,mensaje:e}]),setTimeout(()=>{t.update(e=>e.filter(e=>e.id!==a))},i)}export{t as n,r as t};
