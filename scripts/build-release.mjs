@@ -43,6 +43,9 @@ paso('Compilando frontend (build estatico, va a llamar a la API por su propio or
 // http://localhost:3000 que se usa en desarrollo con dos puertos.
 ejecutar('npm', ['run', 'build'], frontendDir, { PUBLIC_API_URL: '' });
 
+paso('Generando cliente de Prisma (para el motor del schema actual)...');
+ejecutar('npx', ['prisma', 'generate'], apiDir);
+
 paso('Compilando API (NestJS)...');
 ejecutar('npm', ['run', 'build'], apiDir);
 
@@ -63,20 +66,15 @@ cpSync(path.join(apiDir, 'node_modules'), path.join(releaseDir, 'node_modules'),
 paso('Copiando el build del frontend...');
 cpSync(path.join(frontendDir, 'build'), path.join(releaseDir, 'public'), { recursive: true });
 
-paso('Creando base de datos limpia para el release (migrate + seed, nunca tu dev.db de pruebas)...');
-// A proposito NO se copia api/prisma/dev.db: esa es tu base de trabajo y
-// facil termina con libros/documentos/personas de prueba (ver el hilo
-// donde se encontraron 80 documentos de prueba ahi). El release se
-// construye igual que en una maquina nueva -- mismas migraciones +
-// mismo seed -- para que el cliente arranque siempre desde cero, sin
-// depender de en que estado haya quedado tu base local.
+paso('Copiando schema, migraciones y seed de Prisma...');
+// La base vive en el SQL Server que se configure en release/.env, no en
+// este paquete: no se empaqueta ningun dato. iniciar.js aplica las
+// migraciones pendientes y corre el seed (admin) cada vez que arranca,
+// asi una base vacia queda lista sola y una ya creada no se toca.
 mkdirSync(path.join(releaseDir, 'prisma'), { recursive: true });
 cpSync(path.join(apiDir, 'prisma', 'schema.prisma'), path.join(releaseDir, 'prisma', 'schema.prisma'));
-const dbReleaseAbs = path.join(releaseDir, 'prisma', 'dev.db');
-if (existsSync(dbReleaseAbs)) rmSync(dbReleaseAbs);
-const dbUrlRelease = 'file:' + dbReleaseAbs.split(path.sep).join('/');
-ejecutar('npx', ['prisma', 'migrate', 'deploy'], apiDir, { DATABASE_URL: dbUrlRelease });
-ejecutar('npx', ['prisma', 'db', 'seed'], apiDir, { DATABASE_URL: dbUrlRelease });
+cpSync(path.join(apiDir, 'prisma', 'migrations'), path.join(releaseDir, 'prisma', 'migrations'), { recursive: true });
+cpSync(path.join(apiDir, 'prisma', 'seed.js'), path.join(releaseDir, 'prisma', 'seed.js'));
 
 paso('Creando carpeta de storage vacia (los PDFs de prueba no se empaquetan)...');
 mkdirSync(path.join(releaseDir, 'storage'), { recursive: true });
@@ -93,8 +91,7 @@ paso('Copiando el pipeline de OCR (script de Python + tessdata + su db)...');
 // La documentos.db de Python a proposito NO se copia (a diferencia del
 // script en si y tessdata, que si son necesarios): split_consecutivos.py
 // la crea sola con "CREATE TABLE IF NOT EXISTS" en el primer "Subir
-// libro" si no existe, y copiar la tuya llevaria las mismas filas de
-// prueba que se sacaron de prisma/dev.db.
+// libro" si no existe, y copiar la tuya llevaria filas de prueba.
 const ocrOrigenDir = path.resolve(apiDir, '..', 'split_facturas');
 const ocrDestinoDir = path.join(releaseDir, 'split_facturas');
 mkdirSync(ocrDestinoDir, { recursive: true });
@@ -104,11 +101,21 @@ if (existsSync(path.join(ocrOrigenDir, 'tessdata'))) {
 }
 
 paso('Generando .env de release...');
-const jwtSecret = leerValorEnv(path.join(apiDir, '.env'), 'JWT_SECRET') ?? 'cambia-este-valor-en-produccion';
+const apiEnv = path.join(apiDir, '.env');
+const jwtSecret = leerValorEnv(apiEnv, 'JWT_SECRET') ?? 'cambia-este-valor-en-produccion';
+const adminEmail = leerValorEnv(apiEnv, 'ADMIN_EMAIL') ?? 'femcentral@gmail.com';
+const adminPassword = leerValorEnv(apiEnv, 'ADMIN_PASSWORD') ?? 'Femcentral2026*';
 writeFileSync(
 	path.join(releaseDir, '.env'),
 	[
-		'DATABASE_URL="file:./dev.db"',
+		'# Conexion al SQL Server del cliente -- UNICA linea que hay que editar.',
+		'# La base tiene que existir (vacia sirve); las tablas y el usuario admin',
+		'# se crean solos al arrancar. Variantes de formato en README.md.',
+		'DATABASE_URL="sqlserver://localhost:1433;database=gestion_documental;user=sa;password=CAMBIAR;trustServerCertificate=true"',
+		'',
+		`ADMIN_EMAIL=${adminEmail}`,
+		`ADMIN_PASSWORD=${adminPassword}`,
+		'',
 		'STORAGE_BACKEND=filesystem',
 		'STORAGE_PATH=./storage',
 		`JWT_SECRET=${jwtSecret}`,
@@ -127,18 +134,41 @@ writeFileSync(
 paso('Generando iniciar.js y package.json de release...');
 writeFileSync(
 	path.join(releaseDir, 'iniciar.js'),
-	`// Fuerza rutas absolutas para la base de datos, el storage y el\n` +
-		`// pipeline de OCR, calculadas desde la ubicacion real de ESTA carpeta\n` +
-		`// en este momento -- por eso funciona sin importar a donde se copie o\n` +
-		`// descomprima la carpeta "release" (a diferencia de rutas relativas\n` +
-		`// tipo "file:./dev.db", cuya resolucion interna de Prisma no conviene\n` +
-		`// dejar librada al azar).\n` +
+	`// 1) Fuerza rutas absolutas para el storage y el pipeline de OCR,\n` +
+		`//    calculadas desde la ubicacion real de ESTA carpeta -- funciona sin\n` +
+		`//    importar a donde se copie o descomprima "release".\n` +
+		`// 2) Aplica migraciones pendientes y crea/actualiza el admin en el SQL\n` +
+		`//    Server de DATABASE_URL (.env). Idempotente: en una base ya al dia\n` +
+		`//    no cambia nada. Si falla (conexion mal, server apagado) se corta\n` +
+		`//    aca con el error en inicio.log, en vez de levantar una API rota.\n` +
 		`const path = require('path');\n` +
+		`const { execFileSync } = require('child_process');\n` +
 		`const raiz = __dirname;\n` +
-		`process.env.DATABASE_URL = 'file:' + path.join(raiz, 'prisma', 'dev.db').split(path.sep).join('/');\n` +
+		`require('dotenv').config({ path: path.join(raiz, '.env') });\n` +
 		`process.env.STORAGE_PATH = path.join(raiz, 'storage');\n` +
 		`process.env.OCR_SCRIPT_PATH = path.join(raiz, 'split_facturas', 'split_consecutivos.py');\n` +
 		`process.env.OCR_DB_PATH = path.join(raiz, 'split_facturas', 'documentos.db');\n` +
+		`\n` +
+		`// DB_REINTENTOS lo pone iniciar.bat (arranque con el PC): el servicio de\n` +
+		`// SQL Server puede tardar en levantar despues del boot. "npm start" a\n` +
+		`// mano no lo setea, asi una conexion mal configurada falla al instante.\n` +
+		`const opciones = { cwd: raiz, stdio: 'inherit', env: process.env };\n` +
+		`const intentos = Math.max(1, Number(process.env.DB_REINTENTOS) || 1);\n` +
+		`for (let i = 1; ; i++) {\n` +
+		`  try {\n` +
+		`    execFileSync(process.execPath, [path.join(raiz, 'node_modules', 'prisma', 'build', 'index.js'), 'migrate', 'deploy', '--schema', path.join(raiz, 'prisma', 'schema.prisma')], opciones);\n` +
+		`    execFileSync(process.execPath, [path.join(raiz, 'prisma', 'seed.js')], opciones);\n` +
+		`    break;\n` +
+		`  } catch (err) {\n` +
+		`    if (i >= intentos) {\n` +
+		`      console.error('No se pudo preparar la base de datos. Revisar DATABASE_URL en .env y que el SQL Server este encendido y la base exista.');\n` +
+		`      process.exit(1);\n` +
+		`    }\n` +
+		`    console.error(\`Base de datos no disponible (intento \${i}/\${intentos}), reintentando en 15s...\`);\n` +
+		`    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15000);\n` +
+		`  }\n` +
+		`}\n` +
+		`\n` +
 		`require('./dist/main.js');\n`
 );
 
@@ -177,4 +207,4 @@ console.log('    cd release');
 console.log('    npm start');
 console.log('  Para mandarsela al usuario: comprimi toda la carpeta "release" en un .zip y mandaselo.');
 console.log('  En su PC: descomprimir en cualquier lado, entrar a la carpeta, y correr "npm start".');
-console.log('  Para que arranque solo con el PC: correr "instalar-arranque.bat" (doble click) alla -- ver README.md seccion 6.');
+console.log('  Para que arranque solo con el PC: correr "instalar-arranque.bat" (doble click) alla -- ver README.md seccion 7.');

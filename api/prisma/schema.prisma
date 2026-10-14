@@ -1,18 +1,19 @@
 // Esquema objetivo descrito en ../PLAN_API.md seccion 4.
-// Nota portabilidad (ver PLAN_API.md seccion 5): mientras el provider es
-// "sqlite" no se usan anotaciones @db.VarChar/@db.Text especificas de motor,
-// porque el conector de sqlite no las soporta. Al migrar a MySQL (cambiar
-// `provider = "mysql"` y correr `prisma migrate dev` de nuevo) es el momento
-// de agregar `@db.VarChar(n)` en cedula/consecutivo/nombre/etc. y
-// `@@map` con charset utf8mb4 via el connection string
-// (?charset=utf8mb4&collation=utf8mb4_unicode_ci).
+// Motor: SQL Server. Prisma no permite leer el provider desde el .env, asi
+// que cambiar de motor implica editar esta linea y regenerar migraciones;
+// apuntar a OTRO SQL Server (local, de la red, Azure) es solo cambiar
+// DATABASE_URL.
+// Los String sin @db quedan como NVARCHAR(1000): se acotan los que tienen
+// indice unico (SQL Server avisa si la clave puede pasar de 1700 bytes) y
+// se abren a NVARCHAR(MAX) los que pueden ser largos (JSON de auditoria,
+// stderr del OCR).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "sqlserver"
   url      = env("DATABASE_URL")
 }
 
@@ -26,7 +27,7 @@ model Libro {
   consecutivoMin      Int?      @map("consecutivo_min")
   consecutivoMax      Int?      @map("consecutivo_max")
   estado              String    @default("pendiente") // pendiente|procesando|completado|error
-  errorDetalle        String?   @map("error_detalle")
+  errorDetalle        String?   @map("error_detalle") @db.NVarChar(Max)
   iniciadoEn          DateTime? @map("iniciado_en")
   finalizadoEn        DateTime? @map("finalizado_en")
 
@@ -37,7 +38,9 @@ model Libro {
 
 model Persona {
   id            Int      @id @default(autoincrement())
-  cedula        String?  @unique
+  // OJO SQL Server: un UNIQUE admite un solo NULL. Hoy nunca se crea una
+  // persona sin cedula (getOrCreatePersona devuelve null antes), mantenerlo asi.
+  cedula        String?  @unique @db.NVarChar(50)
   nombre        String?
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
@@ -79,7 +82,7 @@ model Documento {
 
 model Usuario {
   id           Int      @id @default(autoincrement())
-  email        String   @unique
+  email        String   @unique @db.NVarChar(255)
   passwordHash String   @map("password_hash")
   rol          String   @default("lector") // admin | editor | lector
   activo       Boolean  @default(true)
@@ -93,7 +96,7 @@ model Auditoria {
   usuarioId   Int?     @map("usuario_id")
   accion      String // ver | descargar | editar | eliminar | subir_libro | subir_documento_manual
   documentoId Int?     @map("documento_id")
-  detalle     String? // JSON con antes/despues si aplica
+  detalle     String?  @db.NVarChar(Max) // JSON con antes/despues si aplica
   fecha       DateTime @default(now())
 
   @@map("auditoria")
