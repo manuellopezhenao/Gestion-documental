@@ -1,0 +1,1 @@
+import{n as e}from"./BfVY1XGf.js";function t(t,n=1,r=50){return e(`/api/v1/personas`,{query:{q:t,page:n,page_size:r}})}function n(t){return e(`/api/v1/personas/${t}`)}function r(t){return e(`/api/v1/personas/${t}/documentos`)}export{n,r,t};

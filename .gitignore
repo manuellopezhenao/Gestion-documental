@@ -11,13 +11,12 @@ build/
 .env.*
 !.env.example
 
-# Backups y releases (no versionar binarios generados)
+# Backups
 backups/
-release/
 
-# release.zip SI se versiona a proposito (a pedido explicito, pese al
-# tamano): asi queda descargable desde el repo sin depender de que
-# alguien se acuerde de resubirlo a un GitHub Release aparte.
+# release/ y release.zip SI se versionan a proposito (a pedido explicito,
+# pese al tamano): asi el paquete completo queda disponible clonando el
+# repo, sin depender de que alguien se acuerde de resubirlo aparte.
 
 # Datos de negocio pesados / generados (no versionar), pero sí los scripts
 split_facturas/*

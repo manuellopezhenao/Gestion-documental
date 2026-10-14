@@ -1,0 +1,1 @@
+var e=`campo`;export{e as t};

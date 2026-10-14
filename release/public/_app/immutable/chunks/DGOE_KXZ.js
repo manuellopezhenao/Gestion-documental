@@ -1,0 +1,1 @@
+import{n as e,t}from"./CAxGSdp-.js";function n(n,i,a){return a?{tono:`rojo`,texto:`eliminado`,titulo:`Eliminado el ${r(a)}`}:n?{tono:`amarillo`,texto:e(i),titulo:t(i)}:{tono:`verde`,texto:`ok`}}function r(e){return e?e.slice(0,10):`— sin dato —`}function i(e){return e&&e.length>0?e:`— sin dato —`}export{r as n,i as r,n as t};

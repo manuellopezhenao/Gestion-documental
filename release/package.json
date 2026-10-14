@@ -1,0 +1,9 @@
+{
+  "name": "gestion-documental",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Paquete listo para correr -- ver como arrancar en package.json > scripts.start",
+  "scripts": {
+    "start": "node iniciar.js"
+  }
+}
