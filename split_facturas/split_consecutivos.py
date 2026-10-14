@@ -35,9 +35,12 @@ Extraccion de cedula/nombre/fecha:
   OCR adicional. La fecha se obtiene igual, tomando la fecha con formato
   AAAA/MM/DD que mas se repite en la pagina.
 
-Requiere Tesseract OCR instalado (ya se instalo via winget:
-UB-Mannheim.TesseractOCR) y el archivo tessdata/spa.traineddata que
-acompana este script.
+Requiere Tesseract OCR instalado con el idioma "spa":
+  - Windows: winget install UB-Mannheim.TesseractOCR
+  - macOS:   brew install tesseract tesseract-lang
+  - Linux:   apt install tesseract-ocr tesseract-ocr-spa
+Si el repo trae su propia carpeta tessdata/ junto a este script (con
+spa.traineddata adentro), esa tiene prioridad sobre la del sistema.
 
 Uso:
     python split_consecutivos.py "ruta\al\archivo.pdf" --max-docs 5
@@ -47,7 +50,9 @@ Uso:
 import argparse
 import os
 import re
+import shutil
 import sqlite3
+import sys
 from collections import Counter
 from datetime import datetime
 
@@ -56,10 +61,23 @@ import pytesseract
 from PIL import Image
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-pytesseract.pytesseract.tesseract_cmd = TESSERACT_EXE
-os.environ["TESSDATA_PREFIX"] = os.path.join(SCRIPT_DIR, "tessdata")
+# El .exe de Windows no esta en PATH por defecto (el instalador de winget no
+# siempre lo agrega); en macOS/Linux "tesseract" si queda en PATH al
+# instalarlo via brew/apt, asi que ahi alcanza con dejar que pytesseract lo
+# busque solo. Solo se fuerza la ruta absoluta cuando estamos en Windows Y
+# el binario no aparece ya en PATH.
+if sys.platform.startswith("win") and shutil.which("tesseract") is None:
+    TESSERACT_EXE_WINDOWS = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.isfile(TESSERACT_EXE_WINDOWS):
+        pytesseract.pytesseract.tesseract_cmd = TESSERACT_EXE_WINDOWS
+
+# Idem con el idioma: si no existe una tessdata local junto al script, se usa
+# la del sistema (brew/apt ya la instalan con "spa" incluido) en vez de
+# forzar una carpeta que en Mac/Linux nunca existio.
+LOCAL_TESSDATA = os.path.join(SCRIPT_DIR, "tessdata")
+if os.path.isfile(os.path.join(LOCAL_TESSDATA, "spa.traineddata")):
+    os.environ["TESSDATA_PREFIX"] = LOCAL_TESSDATA
 
 # Tolera errores tipicos de OCR sobre "Consecutivo" (p.ej. "Consecitivo",
 # "Consecutwo") exigiendo solo el prefijo "consec" seguido en poca

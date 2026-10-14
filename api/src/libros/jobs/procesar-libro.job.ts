@@ -191,14 +191,22 @@ export class ProcesarLibroJob {
     const bytes = await fs.readFile(rutaAbsoluta);
     const hash = createHash('sha256').update(bytes).digest('hex');
 
-    const fecha = fila.fecha ? new Date(fila.fecha.replace(/\//g, '-')) : null;
-    const periodoLibro = fila.periodo_libro ? new Date(`${fila.periodo_libro.replace('/', '-')}-01`) : null;
+    // El OCR a veces lee una fecha con formato correcto pero valor
+    // imposible (ej. "2024/01/90", dia inexistente): eso da un Date
+    // invalido que Prisma rechaza y, sin este chequeo, tira esa fila para
+    // siempre en cada reintento del import incremental - bloqueando todos
+    // los documentos que vienen despues. Se trata igual que "sin fecha":
+    // se guarda null y se manda a revisar en vez de frenar el pipeline.
+    const fecha = fila.fecha ? this.parsearFechaSegura(fila.fecha.replace(/\//g, '-')) : null;
+    const periodoLibro = fila.periodo_libro
+      ? this.parsearFechaSegura(`${fila.periodo_libro.replace('/', '-')}-01`)
+      : null;
     const consecutivoNum = Number.parseInt(fila.consecutivo, 10);
 
     // El bit "revisar" de Python no distingue el motivo; se infiere aqui
     // (ver comentario en el job) para poblar motivo_revisar y poder
     // filtrar la cola de revision por causa (PLAN_API.md seccion 10).
-    const motivo = await this.inferirMotivoRevisar(fila, personaOcr, consecutivoNum);
+    const motivo = await this.inferirMotivoRevisar(fila, personaOcr, consecutivoNum, fecha);
 
     await this.prisma.documento.create({
       data: {
@@ -221,14 +229,22 @@ export class ProcesarLibroJob {
     });
   }
 
+  // Devuelve null si el string no es una fecha real (ej. "2024-01-90"),
+  // en vez de dejar pasar un Date invalido que Prisma va a rechazar.
+  private parsearFechaSegura(valor: string): Date | null {
+    const fecha = new Date(valor);
+    return Number.isNaN(fecha.getTime()) ? null : fecha;
+  }
+
   private async inferirMotivoRevisar(
     fila: FilaDocumentoOcr,
     personaOcr: { cedula: string | null } | null,
     consecutivoNum: number,
+    fecha: Date | null,
   ): Promise<string | null> {
     if (!fila.revisar) {
       if (!personaOcr?.cedula) return 'sin_cedula';
-      if (!fila.fecha) return 'sin_fecha';
+      if (!fecha) return 'sin_fecha';
       return null;
     }
     if (Number.isNaN(consecutivoNum)) return 'consecutivo_fuera_de_tendencia';
