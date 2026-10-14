@@ -142,78 +142,19 @@ writeFileSync(
 		`require('./dist/main.js');\n`
 );
 
-paso('Generando iniciar.bat (para arranque automatico con el PC, ver README.md)...');
-writeFileSync(
-	path.join(releaseDir, 'iniciar.bat'),
-	[
-		'@echo off',
-		'cd /d "%~dp0"',
-		'node iniciar.js >> inicio.log 2>&1'
-	].join('\r\n') + '\r\n'
-);
-
-paso('Generando instalar-arranque.bat / desinstalar-arranque.bat...');
-// Doble click (pide permiso de administrador solo) en vez de tipear
-// "schtasks" a mano -- registra una tarea programada que corre
-// iniciar.bat al encender el PC (no solo al iniciar sesion), con la
-// cuenta SYSTEM. "%~dp0" asegura que apunte a ESTA carpeta sin importar
-// donde se descomprima el release.
-const NOMBRE_TAREA = 'GestionDocumental';
-writeFileSync(
-	path.join(releaseDir, 'instalar-arranque.bat'),
-	[
-		'@echo off',
-		'setlocal',
-		`set TASKNAME=${NOMBRE_TAREA}`,
-		'',
-		'net session >nul 2>&1',
-		'if %errorlevel% neq 0 (',
-		'    echo Pidiendo permiso de administrador...',
-		"    powershell -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
-		'    exit /b',
-		')',
-		'',
-		'echo Registrando la tarea "%TASKNAME%" para que arranque con Windows...',
-		'schtasks /create /tn "%TASKNAME%" /tr "\\"%~dp0iniciar.bat\\"" /sc onstart /ru SYSTEM /rl HIGHEST /f',
-		'if %errorlevel% neq 0 (',
-		'    echo.',
-		'    echo No se pudo crear la tarea. Revisa el mensaje de arriba.',
-		'    pause',
-		'    exit /b 1',
-		')',
-		'',
-		'echo.',
-		'echo Listo. La app va a arrancar sola la proxima vez que se encienda el PC.',
-		'echo Tambien queda corriendo ahora mismo.',
-		'schtasks /run /tn "%TASKNAME%"',
-		'echo Abriendo el navegador en unos segundos (puede tardar en levantar)...',
-		'timeout /t 6 >nul',
-		'start http://localhost:3000',
-		'pause'
-	].join('\r\n') + '\r\n'
-);
-
-writeFileSync(
-	path.join(releaseDir, 'desinstalar-arranque.bat'),
-	[
-		'@echo off',
-		'setlocal',
-		`set TASKNAME=${NOMBRE_TAREA}`,
-		'',
-		'net session >nul 2>&1',
-		'if %errorlevel% neq 0 (',
-		'    echo Pidiendo permiso de administrador...',
-		"    powershell -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
-		'    exit /b',
-		')',
-		'',
-		'schtasks /delete /tn "%TASKNAME%" /f',
-		'echo.',
-		'echo Listo, la tarea de arranque automatico fue eliminada.',
-		'echo (La app sigue estando en esta carpeta, solo dejo de arrancar sola.)',
-		'pause'
-	].join('\r\n') + '\r\n'
-);
+paso('Copiando iniciar.bat / instalar-arranque.bat / desinstalar-arranque.bat...');
+// Estos tres son estaticos (no dependen de nada calculado en este build),
+// asi que viven como archivos de verdad en scripts/windows/ -- versionados
+// en git, editables como cualquier otro archivo -- en vez de generarse
+// inline aqui. "instalar-arranque.bat" pide permiso de administrador y
+// registra una tarea programada que corre iniciar.bat al encender el PC
+// (no solo al iniciar sesion), con la cuenta SYSTEM; "%~dp0" ahi adentro
+// asegura que apunte a ESTA carpeta sin importar donde se descomprima el
+// release.
+const winScriptsDir = path.join(raizRepo, 'scripts', 'windows');
+for (const nombre of ['iniciar.bat', 'instalar-arranque.bat', 'desinstalar-arranque.bat']) {
+	cpSync(path.join(winScriptsDir, nombre), path.join(releaseDir, nombre));
+}
 
 writeFileSync(
 	path.join(releaseDir, 'package.json'),

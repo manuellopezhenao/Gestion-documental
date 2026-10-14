@@ -1,0 +1,3 @@
+@echo off
+cd /d "%~dp0"
+node iniciar.js >> inicio.log 2>&1
