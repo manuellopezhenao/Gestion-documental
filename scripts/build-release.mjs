@@ -63,23 +63,23 @@ cpSync(path.join(apiDir, 'node_modules'), path.join(releaseDir, 'node_modules'),
 paso('Copiando el build del frontend...');
 cpSync(path.join(frontendDir, 'build'), path.join(releaseDir, 'public'), { recursive: true });
 
-paso('Copiando base de datos y esquema de Prisma...');
+paso('Creando base de datos limpia para el release (migrate + seed, nunca tu dev.db de pruebas)...');
+// A proposito NO se copia api/prisma/dev.db: esa es tu base de trabajo y
+// facil termina con libros/documentos/personas de prueba (ver el hilo
+// donde se encontraron 80 documentos de prueba ahi). El release se
+// construye igual que en una maquina nueva -- mismas migraciones +
+// mismo seed -- para que el cliente arranque siempre desde cero, sin
+// depender de en que estado haya quedado tu base local.
 mkdirSync(path.join(releaseDir, 'prisma'), { recursive: true });
 cpSync(path.join(apiDir, 'prisma', 'schema.prisma'), path.join(releaseDir, 'prisma', 'schema.prisma'));
-const dbOrigen = path.join(apiDir, 'prisma', 'dev.db');
-if (existsSync(dbOrigen)) {
-	cpSync(dbOrigen, path.join(releaseDir, 'prisma', 'dev.db'));
-} else {
-	console.warn('  (no se encontro prisma/dev.db en api/ -- el release arranca sin datos)');
-}
+const dbReleaseAbs = path.join(releaseDir, 'prisma', 'dev.db');
+if (existsSync(dbReleaseAbs)) rmSync(dbReleaseAbs);
+const dbUrlRelease = 'file:' + dbReleaseAbs.split(path.sep).join('/');
+ejecutar('npx', ['prisma', 'migrate', 'deploy'], apiDir, { DATABASE_URL: dbUrlRelease });
+ejecutar('npx', ['prisma', 'db', 'seed'], apiDir, { DATABASE_URL: dbUrlRelease });
 
-paso('Copiando archivos PDF (storage)...');
-const storageOrigen = path.resolve(apiDir, '..', 'split_facturas', 'output');
-if (existsSync(storageOrigen)) {
-	cpSync(storageOrigen, path.join(releaseDir, 'storage'), { recursive: true });
-} else {
-	mkdirSync(path.join(releaseDir, 'storage'), { recursive: true });
-}
+paso('Creando carpeta de storage vacia (los PDFs de prueba no se empaquetan)...');
+mkdirSync(path.join(releaseDir, 'storage'), { recursive: true });
 
 paso('Copiando el pipeline de OCR (script de Python + tessdata + su db)...');
 // "Subir libro" no lo procesa Node -- la API llama por afuera a este script
@@ -90,16 +90,17 @@ paso('Copiando el pipeline de OCR (script de Python + tessdata + su db)...');
 // api/ ni frontend/, viven en split_facturas/ a la par, y sin esto "Subir
 // libro" fallaba porque el archivo ni siquiera llegaba a la carpeta que se
 // le manda al usuario.
+// La documentos.db de Python a proposito NO se copia (a diferencia del
+// script en si y tessdata, que si son necesarios): split_consecutivos.py
+// la crea sola con "CREATE TABLE IF NOT EXISTS" en el primer "Subir
+// libro" si no existe, y copiar la tuya llevaria las mismas filas de
+// prueba que se sacaron de prisma/dev.db.
 const ocrOrigenDir = path.resolve(apiDir, '..', 'split_facturas');
 const ocrDestinoDir = path.join(releaseDir, 'split_facturas');
 mkdirSync(ocrDestinoDir, { recursive: true });
 cpSync(path.join(ocrOrigenDir, 'split_consecutivos.py'), path.join(ocrDestinoDir, 'split_consecutivos.py'));
 if (existsSync(path.join(ocrOrigenDir, 'tessdata'))) {
 	cpSync(path.join(ocrOrigenDir, 'tessdata'), path.join(ocrDestinoDir, 'tessdata'), { recursive: true });
-}
-const ocrDbOrigen = path.join(ocrOrigenDir, 'documentos.db');
-if (existsSync(ocrDbOrigen)) {
-	cpSync(ocrDbOrigen, path.join(ocrDestinoDir, 'documentos.db'));
 }
 
 paso('Generando .env de release...');
@@ -141,6 +142,79 @@ writeFileSync(
 		`require('./dist/main.js');\n`
 );
 
+paso('Generando iniciar.bat (para arranque automatico con el PC, ver README.md)...');
+writeFileSync(
+	path.join(releaseDir, 'iniciar.bat'),
+	[
+		'@echo off',
+		'cd /d "%~dp0"',
+		'node iniciar.js >> inicio.log 2>&1'
+	].join('\r\n') + '\r\n'
+);
+
+paso('Generando instalar-arranque.bat / desinstalar-arranque.bat...');
+// Doble click (pide permiso de administrador solo) en vez de tipear
+// "schtasks" a mano -- registra una tarea programada que corre
+// iniciar.bat al encender el PC (no solo al iniciar sesion), con la
+// cuenta SYSTEM. "%~dp0" asegura que apunte a ESTA carpeta sin importar
+// donde se descomprima el release.
+const NOMBRE_TAREA = 'GestionDocumental';
+writeFileSync(
+	path.join(releaseDir, 'instalar-arranque.bat'),
+	[
+		'@echo off',
+		'setlocal',
+		`set TASKNAME=${NOMBRE_TAREA}`,
+		'',
+		'net session >nul 2>&1',
+		'if %errorlevel% neq 0 (',
+		'    echo Pidiendo permiso de administrador...',
+		"    powershell -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
+		'    exit /b',
+		')',
+		'',
+		'echo Registrando la tarea "%TASKNAME%" para que arranque con Windows...',
+		'schtasks /create /tn "%TASKNAME%" /tr "\\"%~dp0iniciar.bat\\"" /sc onstart /ru SYSTEM /rl HIGHEST /f',
+		'if %errorlevel% neq 0 (',
+		'    echo.',
+		'    echo No se pudo crear la tarea. Revisa el mensaje de arriba.',
+		'    pause',
+		'    exit /b 1',
+		')',
+		'',
+		'echo.',
+		'echo Listo. La app va a arrancar sola la proxima vez que se encienda el PC.',
+		'echo Tambien queda corriendo ahora mismo.',
+		'schtasks /run /tn "%TASKNAME%"',
+		'echo Abriendo el navegador en unos segundos (puede tardar en levantar)...',
+		'timeout /t 6 >nul',
+		'start http://localhost:3000',
+		'pause'
+	].join('\r\n') + '\r\n'
+);
+
+writeFileSync(
+	path.join(releaseDir, 'desinstalar-arranque.bat'),
+	[
+		'@echo off',
+		'setlocal',
+		`set TASKNAME=${NOMBRE_TAREA}`,
+		'',
+		'net session >nul 2>&1',
+		'if %errorlevel% neq 0 (',
+		'    echo Pidiendo permiso de administrador...',
+		"    powershell -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
+		'    exit /b',
+		')',
+		'',
+		'schtasks /delete /tn "%TASKNAME%" /f',
+		'echo.',
+		'echo Listo, la tarea de arranque automatico fue eliminada.',
+		'echo (La app sigue estando en esta carpeta, solo dejo de arrancar sola.)',
+		'pause'
+	].join('\r\n') + '\r\n'
+);
+
 writeFileSync(
 	path.join(releaseDir, 'package.json'),
 	JSON.stringify(
@@ -162,3 +236,4 @@ console.log('    cd release');
 console.log('    npm start');
 console.log('  Para mandarsela al usuario: comprimi toda la carpeta "release" en un .zip y mandaselo.');
 console.log('  En su PC: descomprimir en cualquier lado, entrar a la carpeta, y correr "npm start".');
+console.log('  Para que arranque solo con el PC: correr "instalar-arranque.bat" (doble click) alla -- ver README.md seccion 6.');

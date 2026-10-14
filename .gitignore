@@ -14,7 +14,10 @@ build/
 # Backups y releases (no versionar binarios generados)
 backups/
 release/
-release.zip
+
+# release.zip SI se versiona a proposito (a pedido explicito, pese al
+# tamano): asi queda descargable desde el repo sin depender de que
+# alguien se acuerde de resubirlo a un GitHub Release aparte.
 
 # Datos de negocio pesados / generados (no versionar), pero sí los scripts
 split_facturas/*
